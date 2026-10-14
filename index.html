@@ -75,7 +75,9 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 .legend{display:flex;gap:16px;font-size:13px;color:var(--muted)}
 .legend span{display:flex;align-items:center;gap:6px}
 .sw{width:14px;height:3px;display:inline-block}
-.tlist{display:flex;flex-direction:column;gap:14px}
+.tlist{display:flex;flex-direction:column;gap:14px;max-height:440px;overflow-y:auto;padding-right:4px}
+.trow .rank{display:inline-block;min-width:2.2em;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.seg.sm button{min-width:44px;height:32px;font-size:13px}
 .trow{display:flex;flex-direction:column;gap:6px}
 .trow .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}
 .track{height:8px;background:var(--bg);border-radius:4px}
@@ -162,7 +164,14 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
         <div class="axis" id="cumAxis"></div>
       </section>
       <section class="panel small">
-        <h2>Most profitable targets</h2>
+        <div class="ph"><h2>Most profitable targets</h2>
+          <div class="seg sm" role="group" aria-label="Number of targets to show" id="topN">
+            <button type="button" data-n="10" aria-pressed="true">Top 10</button>
+            <button type="button" data-n="20" aria-pressed="false">Top 20</button>
+            <button type="button" data-n="30" aria-pressed="false">Top 30</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:13px" id="targetsNote"></div>
         <div class="tlist" id="targets"></div>
       </section>
     </div>
@@ -195,7 +204,8 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
   'use strict';
   var API = 'https://api.torn.com';
   var MAX_DAYS = 90, MAX_PAGES = 40, PAGE_GAP_MS = 700;
-  var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], raw: [], range: 30, fetchedAt: null, unparsed: 0 };
+  var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], raw: [], range: 30, topN: 10, fetchedAt: null, unparsed: 0 };
+  try { var savedN = Number(localStorage.getItem('mugledger_topN')); if ([10, 20, 30].indexOf(savedN) !== -1) S.topN = savedN; } catch (e) {}
 
   var $ = function (id) { return document.getElementById(id); };
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
@@ -363,6 +373,18 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
   }
 
   // ---- dashboard ----
+  function syncTopN() {
+    Array.prototype.forEach.call($('topN').querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', String(Number(x.dataset.n) === S.topN)); });
+  }
+  syncTopN();
+  $('topN').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.topN = Number(b.dataset.n);
+    try { localStorage.setItem('mugledger_topN', String(S.topN)); } catch (err) {}
+    syncTopN();
+    $('targets').scrollTop = 0;
+    if (S.me) render();
+  });
   $('ranges').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     S.range = Number(b.dataset.r);
@@ -454,12 +476,15 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     // targets
     var byT = {};
     gains.forEach(function (l) { var t = byT[l.other] || (byT[l.other] = { id: l.other, total: 0, n: 0 }); t.total += l.amount; t.n++; });
-    var tl = Object.keys(byT).map(function (k) { return byT[k]; }).sort(function (a, b) { return b.total - a.total; }).slice(0, 6);
+    var tl = Object.keys(byT).map(function (k) { return byT[k]; }).sort(function (a, b) { return b.total - a.total; });
+    var targetCount = tl.length;
+    tl = tl.slice(0, S.topN);
+    $('targetsNote').textContent = targetCount ? 'Showing ' + tl.length + ' of ' + targetCount + ' players you mugged in the last ' + range + ' days' : '';
     var tEl = $('targets'); tEl.textContent = '';
     if (!tl.length) tEl.appendChild(el('div', { class: 'empty' }, 'No successful mugs in this range.'));
-    tl.forEach(function (t) {
+    tl.forEach(function (t, idx) {
       var r = el('div', { class: 'trow' }), top_ = el('div', { class: 'top' }), left = el('span');
-      left.appendChild(playerLink(t.id)); left.appendChild(el('span', { class: 'muted' }, ' · ' + t.n + (t.n === 1 ? ' mug' : ' mugs')));
+      left.appendChild(el('span', { class: 'rank' }, (idx + 1) + '.')); left.appendChild(playerLink(t.id)); left.appendChild(el('span', { class: 'muted' }, ' · ' + t.n + (t.n === 1 ? ' mug' : ' mugs')));
       top_.appendChild(left); top_.appendChild(el('span', { class: 'mono', style: 'font-weight:700' }, compact(t.total)));
       var tr = el('div', { class: 'track' }), fill = el('div'); fill.style.width = (t.total / tl[0].total * 100) + '%'; tr.appendChild(fill);
       r.appendChild(top_); r.appendChild(tr); tEl.appendChild(r);
