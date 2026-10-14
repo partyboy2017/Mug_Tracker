@@ -71,6 +71,16 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 .row > .panel.small{flex:2 1 340px}
 .bars{display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid var(--line)}
 .bars div{flex:1;min-width:2px;background:var(--gain);border-radius:3px 3px 0 0}
+.chart{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px}
+.yaxis{position:relative;min-width:44px;font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.yaxis span{position:absolute;right:0;transform:translateY(50%);white-space:nowrap}
+.plot{position:relative;min-width:0}
+.plot .bars{position:relative;height:100%}
+.gridlines div{position:absolute;left:0;right:0;border-top:1px dashed var(--line)}
+.xaxis{position:relative;height:18px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.xaxis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.xaxis span.tick-first{transform:none}
+.xaxis span.tick-last{transform:translateX(-100%)}
 .axis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .legend{display:flex;gap:16px;font-size:13px;color:var(--muted)}
 .legend span{display:flex;align-items:center;gap:6px}
@@ -167,8 +177,14 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
 
     <section class="panel">
       <div class="ph"><h2>Cash mugged per day</h2><div class="muted" style="font-size:13px" id="peakDay"></div></div>
-      <div class="bars" id="daily" role="img" style="height:220px"></div>
-      <div class="axis" id="dailyAxis"></div>
+      <div class="chart" style="height:240px">
+        <div class="yaxis" id="dailyY" aria-hidden="true"></div>
+        <div class="plot">
+          <div class="gridlines" id="dailyGrid" aria-hidden="true"></div>
+          <div class="bars" id="daily" role="img"></div>
+        </div>
+      </div>
+      <div class="xaxis" id="dailyAxis" aria-hidden="true"></div>
     </section>
 
     <div class="row">
@@ -435,6 +451,23 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     return a;
   }
 
+  // Round chart top up to a clean value and split it into even steps ($250K, $500K, $1M…)
+  function niceScale(max, count) {
+    var raw = max / count, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+    var step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+    var top = Math.ceil(max / step) * step, ticks = [];
+    for (var v = 0; v <= top + step / 2; v += step) ticks.push(v);
+    return { top: top, ticks: ticks };
+  }
+  function axisMoney(v) {
+    if (v === 0) return '$0';
+    var trim = function (n) { return String(+n.toFixed(2)); };
+    if (v >= 1e9) return '$' + trim(v / 1e9) + 'B';
+    if (v >= 1e6) return '$' + trim(v / 1e6) + 'M';
+    if (v >= 1e3) return '$' + trim(v / 1e3) + 'K';
+    return '$' + Math.round(v);
+  }
+
   function anonPill(a) {
     if (a === true) return el('span', { class: 'chip chip-anon' }, 'Anonymous');
     if (a === false) return el('span', { class: 'chip chip-open' }, 'Not anonymous');
@@ -501,17 +534,33 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     for (var i = 0; i < range; i++) days.push({ t: start + i * 86400000, sum: 0, n: 0 });
     gains.forEach(function (l) { var idx = Math.floor((l.ts * 1000 - start) / 86400000); if (days[idx]) { days[idx].sum += l.amount; days[idx].n++; } });
     var maxDay = Math.max.apply(null, days.map(function (d) { return d.sum; }).concat([1]));
+    var scale = niceScale(maxDay, 4);
     var dEl = $('daily'); dEl.textContent = '';
     days.forEach(function (d) {
       var b = el('div', { title: fmtDate(new Date(d.t)) + ': ' + money(d.sum) + ' from ' + d.n + ' mugs' });
-      b.style.height = (d.sum ? Math.max(d.sum / maxDay * 100, 1.5) : 0.5) + '%';
+      b.style.height = (d.sum ? Math.max(d.sum / scale.top * 100, 1) : 0.5) + '%';
       dEl.appendChild(b);
+    });
+    var yEl = $('dailyY'), gEl = $('dailyGrid'); yEl.textContent = ''; gEl.textContent = '';
+    scale.ticks.forEach(function (v) {
+      var pct = v / scale.top * 100;
+      var lab = el('span', null, axisMoney(v)); lab.style.bottom = pct + '%'; yEl.appendChild(lab);
+      if (v > 0) { var g = el('div'); g.style.bottom = pct + '%'; gEl.appendChild(g); }
     });
     var peak = days.reduce(function (a, d) { return d.sum > a.sum ? d : a; }, days[0]);
     $('peakDay').textContent = peak.sum ? 'Peak day ' + fmtDate(new Date(peak.t)) + ' · ' + money(peak.sum) : 'No mugs in this range';
     dEl.setAttribute('aria-label', 'Cash mugged per day over the last ' + range + ' days');
     var ax = $('dailyAxis'); ax.textContent = '';
-    [days[0], days[Math.floor(range / 2)], days[range - 1]].forEach(function (d) { ax.appendChild(el('span', null, fmtDate(new Date(d.t)))); });
+    ax.style.marginLeft = (yEl.offsetWidth + 10) + 'px';
+    var every = range <= 7 ? 1 : range <= 30 ? 5 : 15;
+    days.forEach(function (d, i) {
+      var last = i === range - 1;
+      if (i % every !== 0 && !last) return;
+      if (!last && range - 1 - i < every / 2 && i !== 0) return; // keep the last label from colliding
+      var s = el('span', { class: i === 0 ? 'tick-first' : last ? 'tick-last' : '' }, fmtDate(new Date(d.t)));
+      s.style.left = (i === 0 ? 0 : last ? 100 : (i + 0.5) / range * 100) + '%';
+      ax.appendChild(s);
+    });
 
     // cumulative
     var cg = 0, cl = 0, ptsG = [], ptsL = [];
