@@ -79,7 +79,23 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 .trow .rank{display:inline-block;min-width:2.2em;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
 .seg.sm button{min-width:44px;height:32px;font-size:13px}
 .trow{display:flex;flex-direction:column;gap:6px}
-.trow .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.trow .top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px}
+.tleft{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;min-width:0}
+.xbtn{width:36px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--muted)}
+.xbtn:hover{color:var(--fg);border-color:var(--muted)}
+.xbtn svg{transition:transform .15s}
+.xbtn[aria-expanded="true"]{color:var(--gain);border-color:var(--gain-dim)}
+.xbtn[aria-expanded="true"] svg{transform:rotate(90deg)}
+.tdetail{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.tsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;font-size:14px}
+.tsum .cap{font-size:11px;margin-bottom:2px}
+.mlist{display:flex;flex-direction:column}
+.mrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.mrow .amt{margin-left:auto;font-weight:700;color:var(--gain)}
+.chip{padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
+.chip-anon{background:#23272e;color:#c4c8ce}
+.chip-open{background:#1f3324;color:var(--gain)}
+.chip-unk{border:1px dashed var(--line);color:var(--muted)}
 .track{height:8px;background:var(--bg);border-radius:4px}
 .track div{height:8px;background:var(--gain);border-radius:4px}
 .tbl{overflow-x:auto}
@@ -204,7 +220,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
   'use strict';
   var API = 'https://api.torn.com';
   var MAX_DAYS = 90, MAX_PAGES = 40, PAGE_GAP_MS = 700;
-  var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], raw: [], range: 30, topN: 10, fetchedAt: null, unparsed: 0 };
+  var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], raw: [], range: 30, topN: 10, openTargets: {}, fetchedAt: null, unparsed: 0 };
   try { var savedN = Number(localStorage.getItem('mugledger_topN')); if ([10, 20, 30].indexOf(savedN) !== -1) S.topN = savedN; } catch (e) {}
 
   var $ = function (id) { return document.getElementById(id); };
@@ -369,7 +385,18 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     else if (def === S.me.id) earned = false;
     else earned = !/mugged by|receive|lost|victim/i.test(title);
     var other = earned ? (def != null ? def : att) : (att != null ? att : def);
-    return { ts: x.timestamp, amount: Math.abs(amt), earned: earned, other: other, title: title };
+    return { ts: x.timestamp, amount: Math.abs(amt), earned: earned, other: other, title: title, anon: anonOf(d, title) };
+  }
+  // true = anonymous/stealthed, false = the log says it wasn't, null = the log doesn't say
+  function anonOf(d, title) {
+    for (var k in d) {
+      if (!/anon|stealth/i.test(k)) continue;
+      var v = d[k];
+      if (typeof v === 'string') return /^(1|true|yes)$/i.test(v.trim()) || /anon|stealth/i.test(v);
+      return !!Number(v) || v === true;
+    }
+    if (/anonym|stealth/i.test(title)) return true;
+    return null;
   }
 
   // ---- dashboard ----
@@ -406,6 +433,36 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     if (id == null || !isFinite(id)) return el('span', null, 'Unknown player');
     var a = el('a', { href: 'https://www.torn.com/profiles.php?XID=' + id, target: '_blank', rel: 'noopener' }, 'Player [' + id + ']');
     return a;
+  }
+
+  function anonPill(a) {
+    if (a === true) return el('span', { class: 'chip chip-anon' }, 'Anonymous');
+    if (a === false) return el('span', { class: 'chip chip-open' }, 'Not anonymous');
+    return el('span', { class: 'chip chip-unk', title: 'This log entry doesn’t say whether the attack was anonymous' }, 'Not in log');
+  }
+
+  function targetDetail(t, id) {
+    var box = el('div', { class: 'tdetail', id: id });
+    var mugs = t.mugs.slice().sort(function (a, b) { return b.ts - a.ts; });
+    var anonN = mugs.filter(function (m) { return m.anon === true; }).length;
+    var known = mugs.filter(function (m) { return m.anon !== null; }).length;
+    var best = mugs.reduce(function (a, m) { return m.amount > a.amount ? m : a; }, mugs[0]);
+    var sum = el('div', { class: 'tsum' });
+    [['Average', compact(t.total / t.n)], ['Biggest', compact(best.amount)], ['Last mugged', fmtDate(new Date(mugs[0].ts * 1000))],
+     ['Anonymous', known ? anonN + ' of ' + t.n : 'Not in log']].forEach(function (p) {
+      var c = el('div'); c.appendChild(el('div', { class: 'cap' }, p[0])); c.appendChild(el('div', { class: 'mono', style: 'font-weight:700' }, p[1])); sum.appendChild(c);
+    });
+    box.appendChild(sum);
+    var list = el('div', { class: 'mlist', role: 'list' });
+    mugs.forEach(function (m) {
+      var d = new Date(m.ts * 1000), row = el('div', { class: 'mrow', role: 'listitem' });
+      row.appendChild(el('span', { class: 'mono muted' }, fmtDate(d) + ' ' + d.getUTCFullYear() + ' · ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' TCT'));
+      row.appendChild(anonPill(m.anon));
+      row.appendChild(el('span', { class: 'mono amt' }, '+' + money(m.amount)));
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    return box;
   }
 
   function render() {
@@ -475,7 +532,7 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
 
     // targets
     var byT = {};
-    gains.forEach(function (l) { var t = byT[l.other] || (byT[l.other] = { id: l.other, total: 0, n: 0 }); t.total += l.amount; t.n++; });
+    gains.forEach(function (l) { var t = byT[l.other] || (byT[l.other] = { id: l.other, total: 0, n: 0, mugs: [] }); t.total += l.amount; t.n++; t.mugs.push(l); });
     var tl = Object.keys(byT).map(function (k) { return byT[k]; }).sort(function (a, b) { return b.total - a.total; });
     var targetCount = tl.length;
     tl = tl.slice(0, S.topN);
@@ -483,11 +540,18 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
     var tEl = $('targets'); tEl.textContent = '';
     if (!tl.length) tEl.appendChild(el('div', { class: 'empty' }, 'No successful mugs in this range.'));
     tl.forEach(function (t, idx) {
-      var r = el('div', { class: 'trow' }), top_ = el('div', { class: 'top' }), left = el('span');
+      var open = !!S.openTargets[t.id], detailId = 'tdetail-' + t.id;
+      var r = el('div', { class: 'trow' }), top_ = el('div', { class: 'top' }), left = el('span', { class: 'tleft' });
+      var xb = el('button', { type: 'button', class: 'xbtn', 'aria-expanded': String(open), 'aria-controls': detailId, 'aria-label': (open ? 'Hide' : 'Show') + ' mugs of player ' + t.id });
+      xb.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+      xb.addEventListener('click', function () { S.openTargets[t.id] = !S.openTargets[t.id]; render(); });
+      left.appendChild(xb);
       left.appendChild(el('span', { class: 'rank' }, (idx + 1) + '.')); left.appendChild(playerLink(t.id)); left.appendChild(el('span', { class: 'muted' }, ' · ' + t.n + (t.n === 1 ? ' mug' : ' mugs')));
       top_.appendChild(left); top_.appendChild(el('span', { class: 'mono', style: 'font-weight:700' }, compact(t.total)));
       var tr = el('div', { class: 'track' }), fill = el('div'); fill.style.width = (t.total / tl[0].total * 100) + '%'; tr.appendChild(fill);
-      r.appendChild(top_); r.appendChild(tr); tEl.appendChild(r);
+      r.appendChild(top_); r.appendChild(tr);
+      if (open) r.appendChild(targetDetail(t, detailId));
+      tEl.appendChild(r);
     });
 
     // hours
