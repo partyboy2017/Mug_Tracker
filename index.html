@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mug Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: centered login card → full-width dashboard of stacked panels. Single dark look by choice. */
+:root{
+  --bg:#0f1114; --panel:#171a1f; --line:#262a31; --fg:#e8e6e3; --muted:#9aa0a8;
+  --gain:#8fdc9a; --gain-dim:#4f7a56; --loss:#f0a35e; --loss-bg:#2a2418;
+  --sans:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px}
+button,input{font:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--gain);outline-offset:2px}
+a{color:var(--gain)}
+[hidden]{display:none!important}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-mark{width:40px;height:40px;border-radius:8px;background:var(--gain);display:flex;align-items:center;justify-content:center;flex:none}
+.logo-text{font-weight:800;letter-spacing:.04em;font-size:19px}
+
+/* login */
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding-block:48px}
+.login-col{width:100%;max-width:460px;display:flex;flex-direction:column;gap:28px}
+h1{margin:0;font-size:34px;line-height:1.1;text-wrap:balance}
+.lede{margin:0;line-height:1.55;color:var(--muted);font-size:16px}
+.lede strong{color:var(--fg)}
+form{display:flex;flex-direction:column;gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px}
+label.cap,.cap{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.key-row{display:flex;gap:8px}
+#apikey{flex:1;min-width:0;height:48px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:0 14px;font-family:var(--mono);font-size:16px;letter-spacing:.08em}
+#apikey:focus{outline:none;border-color:var(--gain)}
+#apikey.bad{border-color:var(--loss)}
+.icon-btn{width:48px;height:48px;flex:none;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.primary{height:48px;border:0;border-radius:8px;background:var(--gain);color:#0f1114;font-weight:700;font-size:16px}
+.primary:disabled{opacity:.7;cursor:progress}
+.err{color:var(--loss);font-size:14px;line-height:1.45}
+.status{font-size:14px;color:var(--muted);line-height:1.45}
+.fine{font-size:13px;color:var(--muted);line-height:1.5}
+.fine b{color:var(--fg);font-weight:600}
+
+/* dashboard */
+#dash{padding-block:24px 64px}
+.dash-col{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:24px}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.who{font-size:13px;color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px;gap:4px}
+.seg button{min-width:56px;height:36px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-family:var(--mono);font-weight:700}
+.seg button[aria-pressed="true"]{background:var(--gain);color:#0f1114}
+.ghost{height:44px;padding:0 16px;background:transparent;border:1px solid var(--line);border-radius:8px;color:var(--fg);font-weight:600;font-size:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.kpi .v{font-family:var(--mono);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kpi .s{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.panel h2{margin:0;font-size:18px}
+.ph{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}
+.row{display:flex;flex-wrap:wrap;gap:24px}
+.row > .panel.big{flex:3 1 520px}
+.row > .panel.small{flex:2 1 340px}
+.bars{display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid var(--line)}
+.bars div{flex:1;min-width:2px;background:var(--gain);border-radius:3px 3px 0 0}
+.axis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:6px}
+.sw{width:14px;height:3px;display:inline-block}
+.tlist{display:flex;flex-direction:column;gap:14px}
+.trow{display:flex;flex-direction:column;gap:6px}
+.trow .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.track{height:8px;background:var(--bg);border-radius:4px}
+.track div{height:8px;background:var(--gain);border-radius:4px}
+.tbl{overflow-x:auto}
+table{width:100%;min-width:480px;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:0 12px 10px 0}
+td{padding:12px 12px 12px 0;border-top:1px solid var(--line)}
+td.r,th.r{text-align:right;padding-right:0}
+.empty{padding:32px 0;text-align:center;color:var(--muted)}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 24px}
+summary{cursor:pointer;font-weight:600}
+pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;color:var(--muted);max-height:320px;overflow:auto}
+.note{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.pill{padding:4px 8px;border-radius:4px;background:var(--loss-bg);color:var(--loss);font-weight:700;letter-spacing:.06em;font-size:12px}
+@media (prefers-reduced-motion:no-preference){.bars div,.track div{transition:height .3s,width .3s}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="coin" viewBox="0 0 24 24"><path d="M12 2v20" fill="none" stroke="#0f1114" stroke-width="2.2" stroke-linecap="round"/><path d="M17 6.5c0-1.9-2.2-3.5-5-3.5S7 4.6 7 6.5 9.2 9.5 12 10s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5" fill="none" stroke="#0f1114" stroke-width="2.2" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- LOGIN -->
+<main id="login" class="wrap">
+  <div class="login-col">
+    <div class="logo"><div class="logo-mark"><svg width="22" height="22" aria-hidden="true"><use href="#coin"/></svg></div><div class="logo-text">MUG LEDGER</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <h1>Sign in with your Torn API key</h1>
+      <p class="lede">Your mugging history lives in your personal logs, which only a <strong>Full Access</strong> key can read. No username or password needed.</p>
+    </div>
+    <form id="loginForm" novalidate>
+      <label class="cap" for="apikey">Full Access API key</label>
+      <div class="key-row">
+        <input id="apikey" type="password" placeholder="16-character key" autocomplete="off" spellcheck="false" maxlength="16">
+        <button type="button" class="icon-btn" id="toggleKey" aria-label="Show key">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div id="loginErr" class="err" role="alert" hidden></div>
+      <div id="loginStatus" class="status" role="status" hidden></div>
+      <button type="submit" class="primary" id="loginBtn">Log in</button>
+      <div class="fine">Create one in Torn under <b>Settings › API Keys</b> and choose <b>Full Access</b>. This page runs only in your browser: the key is sent only to api.torn.com and is forgotten when you close the tab.</div>
+    </form>
+  </div>
+</main>
+
+<!-- DASHBOARD -->
+<div id="dash" class="wrap" hidden>
+  <div class="dash-col">
+    <header>
+      <div class="logo">
+        <div class="logo-mark" style="width:36px;height:36px"><svg width="20" height="20" aria-hidden="true"><use href="#coin"/></svg></div>
+        <div><div class="logo-text" style="font-size:18px">MUG LEDGER</div><div class="who" id="who"></div></div>
+      </div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Date range" id="ranges">
+          <button type="button" data-r="7" aria-pressed="false">7D</button>
+          <button type="button" data-r="30" aria-pressed="true">30D</button>
+          <button type="button" data-r="90" aria-pressed="false">90D</button>
+        </div>
+        <button type="button" class="ghost" id="refresh">Refresh</button>
+        <button type="button" class="ghost" id="logout">Log out</button>
+      </div>
+    </header>
+
+    <div class="note" id="syncNote"></div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <section class="panel">
+      <div class="ph"><h2>Cash mugged per day</h2><div class="muted" style="font-size:13px" id="peakDay"></div></div>
+      <div class="bars" id="daily" role="img" style="height:220px"></div>
+      <div class="axis" id="dailyAxis"></div>
+    </section>
+
+    <div class="row">
+      <section class="panel big">
+        <div class="ph"><h2>Running total</h2>
+          <div class="legend"><span><i class="sw" style="background:var(--gain)"></i>You mugged</span><span><i class="sw" style="background:var(--loss)"></i>Mugged from you</span></div>
+        </div>
+        <svg id="cum" role="img" viewBox="0 0 600 200" preserveAspectRatio="none" style="width:100%;height:220px;display:block"></svg>
+        <div class="axis" id="cumAxis"></div>
+      </section>
+      <section class="panel small">
+        <h2>Most profitable targets</h2>
+        <div class="tlist" id="targets"></div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel small">
+        <div class="ph"><h2>Cash by hour (TCT)</h2><div class="muted" style="font-size:13px" id="bestHour"></div></div>
+        <div class="bars" id="hours" role="img" style="height:160px"></div>
+        <div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+      </section>
+      <section class="panel big">
+        <h2>Recent mugs</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>When (TCT)</th><th>Player</th><th>Direction</th><th class="r">Amount</th></tr></thead>
+          <tbody id="recent"></tbody>
+        </table></div>
+      </section>
+    </div>
+
+    <details>
+      <summary>Log details for troubleshooting</summary>
+      <p class="fine">If a number looks wrong, copy this box into the chat. It shows the log types matched and the first few logs as Torn sent them. It never contains your key.</p>
+      <pre id="debug"></pre>
+    </details>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var API = 'https://api.torn.com';
+  var MAX_DAYS = 90, MAX_PAGES = 40, PAGE_GAP_MS = 700;
+  var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], raw: [], range: 30, fetchedAt: null, unparsed: 0 };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var money = function (n) { return '$' + Math.round(n).toLocaleString('en-US'); };
+  var compact = function (n) {
+    var a = Math.abs(n), s = n < 0 ? '−' : '';
+    if (a >= 1e9) return s + '$' + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + 'M';
+    if (a >= 1e3) return s + '$' + Math.round(a / 1e3) + 'K';
+    return s + '$' + Math.round(a);
+  };
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var fmtDate = function (d) { return MON[d.getUTCMonth()] + ' ' + d.getUTCDate(); };
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  var el = function (tag, attrs, text) { var e = document.createElement(tag); if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+
+  function TornError(code, msg) { this.code = code; this.message = msg; }
+
+  async function torn(path, params) {
+    var q = new URLSearchParams(params || {}); q.set('key', S.key);
+    var url = API + path + '?' + q.toString();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var res;
+      try { res = await fetch(url, { cache: 'no-store' }); }
+      catch (e) { throw new TornError('network', 'Could not reach api.torn.com. Check your internet connection, and turn off any ad or script blocker for this page.'); }
+      var body;
+      try { body = await res.json(); } catch (e) { throw new TornError('http', 'Torn sent back something unexpected (HTTP ' + res.status + '). Try again in a minute.'); }
+      if (body && body.error) {
+        var c = body.error.code;
+        if (c === 5 && attempt === 0) { status('Torn says too many requests. Waiting 30 seconds…'); await sleep(30000); continue; }
+        throw new TornError(c, tornMessage(c, body.error.error));
+      }
+      return body;
+    }
+  }
+  function tornMessage(code, text) {
+    var m = {
+      0: 'Torn reported an unknown error.',
+      1: 'Enter your API key to continue.',
+      2: 'Torn says this key is incorrect. Copy it again from Settings › API Keys.',
+      5: 'Torn says too many requests. Wait a minute and try again.',
+      8: 'Torn has temporarily blocked this IP for too many requests. Try again later.',
+      9: 'The Torn API is switched off right now. Try again later.',
+      10: 'This key belongs to a player in federal jail, so Torn has paused it.',
+      13: 'This key is paused because its owner has been inactive for over 7 days.',
+      16: 'This key does not have Full Access. Create a Full Access key in Settings › API Keys.',
+      18: 'This key has been paused by its owner. Unpause it in Settings › API Keys.'
+    };
+    return m[code] || ('Torn error ' + code + ': ' + (text || 'unknown'));
+  }
+
+  function showErr(msg) { var e = $('loginErr'); e.textContent = msg; e.hidden = !msg; $('apikey').classList.toggle('bad', !!msg); }
+  function status(msg) { var s = $('loginStatus'); s.textContent = msg || ''; s.hidden = !msg; }
+
+  // ---- login ----
+  $('toggleKey').addEventListener('click', function () {
+    var i = $('apikey'), show = i.type === 'password';
+    i.type = show ? 'text' : 'password';
+    this.setAttribute('aria-label', show ? 'Hide key' : 'Show key');
+  });
+  $('apikey').addEventListener('input', function () { showErr(''); });
+
+  $('loginForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    var k = $('apikey').value.trim();
+    if (!k) return showErr('Enter your API key to continue.');
+    if (!/^[A-Za-z0-9]{16}$/.test(k)) return showErr('Torn API keys are exactly 16 letters and numbers. Check for missing or extra characters.');
+    showErr(''); S.key = k;
+    var btn = $('loginBtn'); btn.disabled = true; btn.textContent = 'Checking key…';
+    try {
+      status('Checking the key’s access level…');
+      await checkAccess();
+      status('Loading your player profile…');
+      var basic = await torn('/user/', { selections: 'basic' });
+      S.me = { id: Number(basic.player_id), name: basic.name };
+      status('Finding Torn’s mugging log types…');
+      await loadTypes();
+      await loadLogs();
+      $('apikey').value = '';
+      $('login').hidden = true; $('dash').hidden = false;
+      render();
+      window.scrollTo(0, 0);
+    } catch (e) {
+      S.key = '';
+      showErr(e instanceof TornError ? e.message : 'Something went wrong: ' + (e && e.message ? e.message : e));
+    } finally {
+      status(''); btn.disabled = false; btn.textContent = 'Log in';
+    }
+  });
+
+  async function checkAccess() {
+    var info;
+    try { info = await torn('/key/', { selections: 'info' }); }
+    catch (e) {
+      if (e.code === 2 || e.code === 'network' || e.code === 13 || e.code === 18 || e.code === 10) throw e;
+      return; // key/info unavailable; the log call below will reveal low access (error 16)
+    }
+    var lvl = info && (info.access_level != null ? info.access_level : info.info && info.info.access && info.info.access.level);
+    var type = info && (info.access_type || (info.info && info.info.access && info.info.access.type)) || '';
+    if ((lvl != null && Number(lvl) < 4) || (type && !/full/i.test(type))) {
+      throw new TornError(16, 'This is a ' + (type || ('level ' + lvl)) + ' key. Mugging logs need a Full Access key. Create one in Settings › API Keys.');
+    }
+  }
+
+  async function loadTypes() {
+    var r = await torn('/torn/', { selections: 'logtypes' });
+    var lt = r.logtypes || r.logTypes || {};
+    var pairs = [];
+    if (Array.isArray(lt)) lt.forEach(function (t) { pairs.push([t.id, t.title]); });
+    else Object.keys(lt).forEach(function (id) { var v = lt[id]; pairs.push([id, typeof v === 'string' ? v : (v && (v.title || v.name)) || '']); });
+    var mug = pairs.filter(function (p) { return /mug/i.test(p[1]); });
+    if (!mug.length) throw new TornError('types', 'Could not find any mugging log types in Torn’s list. Torn may have renamed them.');
+    S.typeIds = mug.slice(0, 10).map(function (p) { return String(p[0]); });
+    S.typeNames = {}; mug.forEach(function (p) { S.typeNames[p[0]] = p[1]; });
+  }
+
+  async function loadLogs() {
+    var cutoff = Math.floor(Date.now() / 1000) - MAX_DAYS * 86400;
+    var seen = {}, out = [], raw = [], to = null;
+    for (var page = 0; page < MAX_PAGES; page++) {
+      status('Pulling mugging logs… page ' + (page + 1) + ' (' + out.length + ' found so far)');
+      var params = { selections: 'log', log: S.typeIds.join(',') };
+      if (to) params.to = to;
+      var r = await torn('/user/', params);
+      var entries = r.log ? (Array.isArray(r.log) ? r.log : Object.keys(r.log).map(function (id) { var x = r.log[id]; x._id = x.id || id; return x; })) : [];
+      if (!entries.length) break;
+      var oldest = Infinity, added = 0;
+      entries.forEach(function (x) {
+        var id = x._id || x.id || (x.timestamp + ':' + x.log);
+        if (x.timestamp < oldest) oldest = x.timestamp;
+        if (seen[id]) return; seen[id] = 1; added++;
+        if (x.timestamp < cutoff) return;
+        if (raw.length < 4) raw.push(x);
+        out.push(x);
+      });
+      if (entries.length < 100 || oldest < cutoff || !added || !isFinite(oldest)) break;
+      to = oldest - 1;
+      await sleep(PAGE_GAP_MS);
+    }
+    S.raw = raw;
+    S.unparsed = 0;
+    S.logs = out.map(parseLog).filter(Boolean);
+    S.fetchedAt = new Date();
+  }
+
+  function amountOf(d) {
+    if (!d) return null;
+    var pref = ['money_mugged', 'money', 'amount', 'mugged'];
+    for (var i = 0; i < pref.length; i++) if (d[pref[i]] != null && isFinite(Number(d[pref[i]]))) return Number(d[pref[i]]);
+    for (var k in d) if (/money|mug|amount|cash/i.test(k) && isFinite(Number(d[k]))) return Number(d[k]);
+    return null;
+  }
+  function parseLog(x) {
+    var d = x.data || {};
+    var amt = amountOf(d);
+    if (amt == null) { S.unparsed++; return null; }
+    var att = d.attacker != null ? Number(d.attacker) : null, def = d.defender != null ? Number(d.defender) : null;
+    var title = x.title || S.typeNames[x.log] || '';
+    var earned;
+    if (att === S.me.id) earned = true;
+    else if (def === S.me.id) earned = false;
+    else earned = !/mugged by|receive|lost|victim/i.test(title);
+    var other = earned ? (def != null ? def : att) : (att != null ? att : def);
+    return { ts: x.timestamp, amount: Math.abs(amt), earned: earned, other: other, title: title };
+  }
+
+  // ---- dashboard ----
+  $('ranges').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    S.range = Number(b.dataset.r);
+    Array.prototype.forEach.call(this.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    render();
+  });
+  $('logout').addEventListener('click', function () {
+    S.key = ''; S.me = null; S.logs = []; S.raw = [];
+    $('dash').hidden = true; $('login').hidden = false; $('apikey').value = ''; $('apikey').focus();
+  });
+  $('refresh').addEventListener('click', async function () {
+    var b = this; b.disabled = true; b.textContent = 'Refreshing…';
+    try { await loadLogs(); render(); }
+    catch (e) { $('syncNote').textContent = e.message || String(e); }
+    finally { b.disabled = false; b.textContent = 'Refresh'; status(''); }
+  });
+
+  function playerLink(id) {
+    if (id == null || !isFinite(id)) return el('span', null, 'Unknown player');
+    var a = el('a', { href: 'https://www.torn.com/profiles.php?XID=' + id, target: '_blank', rel: 'noopener' }, 'Player [' + id + ']');
+    return a;
+  }
+
+  function render() {
+    var me = S.me;
+    $('who').textContent = 'Signed in as ' + me.name + ' [' + me.id + '] · key ••••' + S.key.slice(-4);
+
+    var now = new Date(); var today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    var range = S.range, start = today - (range - 1) * 86400000;
+    var logs = S.logs.filter(function (l) { return l.ts * 1000 >= start; });
+    var gains = logs.filter(function (l) { return l.earned; }), losses = logs.filter(function (l) { return !l.earned; });
+    var total = gains.reduce(function (a, l) { return a + l.amount; }, 0);
+    var lost = losses.reduce(function (a, l) { return a + l.amount; }, 0);
+    var big = gains.reduce(function (a, l) { return l.amount > a.amount ? l : a; }, { amount: 0 });
+
+    var note = $('syncNote'); note.textContent = '';
+    note.appendChild(el('span', null, S.logs.length + ' mugging logs loaded from the last ' + MAX_DAYS + ' days · updated ' + pad(S.fetchedAt.getHours()) + ':' + pad(S.fetchedAt.getMinutes()) + ' your time'));
+    if (S.unparsed) note.appendChild(el('span', { class: 'pill' }, S.unparsed + ' LOGS WITHOUT A CASH AMOUNT SKIPPED'));
+
+    var kp = $('kpis'); kp.textContent = '';
+    [
+      ['Total mugged', compact(total), money(total) + ' over ' + range + ' days', 'var(--gain)'],
+      ['Successful mugs', gains.length.toLocaleString('en-US'), (gains.length / range).toFixed(1) + ' per day', 'var(--fg)'],
+      ['Average per mug', compact(gains.length ? total / gains.length : 0), money(gains.length ? total / gains.length : 0), 'var(--fg)'],
+      ['Biggest mug', compact(big.amount), big.ts ? 'Player [' + big.other + '] · ' + fmtDate(new Date(big.ts * 1000)) : 'None yet', 'var(--fg)'],
+      ['Mugged from you', compact(lost), losses.length + ' times · net ' + compact(total - lost), 'var(--loss)']
+    ].forEach(function (k) {
+      var c = el('div', { class: 'kpi' });
+      c.appendChild(el('div', { class: 'cap' }, k[0]));
+      var v = el('div', { class: 'v' }, k[1]); v.style.color = k[3]; c.appendChild(v);
+      c.appendChild(el('div', { class: 's' }, k[2]));
+      kp.appendChild(c);
+    });
+
+    // daily
+    var days = [];
+    for (var i = 0; i < range; i++) days.push({ t: start + i * 86400000, sum: 0, n: 0 });
+    gains.forEach(function (l) { var idx = Math.floor((l.ts * 1000 - start) / 86400000); if (days[idx]) { days[idx].sum += l.amount; days[idx].n++; } });
+    var maxDay = Math.max.apply(null, days.map(function (d) { return d.sum; }).concat([1]));
+    var dEl = $('daily'); dEl.textContent = '';
+    days.forEach(function (d) {
+      var b = el('div', { title: fmtDate(new Date(d.t)) + ': ' + money(d.sum) + ' from ' + d.n + ' mugs' });
+      b.style.height = (d.sum ? Math.max(d.sum / maxDay * 100, 1.5) : 0.5) + '%';
+      dEl.appendChild(b);
+    });
+    var peak = days.reduce(function (a, d) { return d.sum > a.sum ? d : a; }, days[0]);
+    $('peakDay').textContent = peak.sum ? 'Peak day ' + fmtDate(new Date(peak.t)) + ' · ' + money(peak.sum) : 'No mugs in this range';
+    dEl.setAttribute('aria-label', 'Cash mugged per day over the last ' + range + ' days');
+    var ax = $('dailyAxis'); ax.textContent = '';
+    [days[0], days[Math.floor(range / 2)], days[range - 1]].forEach(function (d) { ax.appendChild(el('span', null, fmtDate(new Date(d.t)))); });
+
+    // cumulative
+    var cg = 0, cl = 0, ptsG = [], ptsL = [];
+    var perDayLoss = days.map(function () { return 0; });
+    losses.forEach(function (l) { var idx = Math.floor((l.ts * 1000 - start) / 86400000); if (idx >= 0 && idx < range) perDayLoss[idx] += l.amount; });
+    var series = days.map(function (d, i) { cg += d.sum; cl += perDayLoss[i]; return [cg, cl]; });
+    var top = Math.max(cg, cl, 1) * 1.08, step = 600 / Math.max(range - 1, 1);
+    series.forEach(function (c, i) { var x = (i * step).toFixed(1); ptsG.push(x + ',' + (200 - c[0] / top * 200).toFixed(1)); ptsL.push(x + ',' + (200 - c[1] / top * 200).toFixed(1)); });
+    var svg = $('cum');
+    svg.innerHTML = '';
+    var NS = 'http://www.w3.org/2000/svg';
+    [50, 100, 150].forEach(function (y) { var l = document.createElementNS(NS, 'line'); l.setAttribute('x1', 0); l.setAttribute('x2', 600); l.setAttribute('y1', y); l.setAttribute('y2', y); l.setAttribute('stroke', '#262a31'); l.setAttribute('vector-effect', 'non-scaling-stroke'); svg.appendChild(l); });
+    var area = document.createElementNS(NS, 'polygon'); area.setAttribute('points', '0,200 ' + ptsG.join(' ') + ' 600,200'); area.setAttribute('fill', '#8fdc9a'); area.setAttribute('fill-opacity', '0.12'); svg.appendChild(area);
+    [[ptsG, '#8fdc9a'], [ptsL, '#f0a35e']].forEach(function (p) { var pl = document.createElementNS(NS, 'polyline'); pl.setAttribute('points', p[0].join(' ')); pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', p[1]); pl.setAttribute('stroke-width', '2.5'); pl.setAttribute('stroke-linejoin', 'round'); pl.setAttribute('vector-effect', 'non-scaling-stroke'); svg.appendChild(pl); });
+    svg.setAttribute('aria-label', 'Running total: ' + money(total) + ' mugged versus ' + money(lost) + ' mugged from you');
+    var cax = $('cumAxis'); cax.textContent = '';
+    cax.appendChild(el('span', null, fmtDate(new Date(days[0].t)))); cax.appendChild(el('span', null, 'Top of chart = ' + compact(top))); cax.appendChild(el('span', null, fmtDate(new Date(days[range - 1].t))));
+
+    // targets
+    var byT = {};
+    gains.forEach(function (l) { var t = byT[l.other] || (byT[l.other] = { id: l.other, total: 0, n: 0 }); t.total += l.amount; t.n++; });
+    var tl = Object.keys(byT).map(function (k) { return byT[k]; }).sort(function (a, b) { return b.total - a.total; }).slice(0, 6);
+    var tEl = $('targets'); tEl.textContent = '';
+    if (!tl.length) tEl.appendChild(el('div', { class: 'empty' }, 'No successful mugs in this range.'));
+    tl.forEach(function (t) {
+      var r = el('div', { class: 'trow' }), top_ = el('div', { class: 'top' }), left = el('span');
+      left.appendChild(playerLink(t.id)); left.appendChild(el('span', { class: 'muted' }, ' · ' + t.n + (t.n === 1 ? ' mug' : ' mugs')));
+      top_.appendChild(left); top_.appendChild(el('span', { class: 'mono', style: 'font-weight:700' }, compact(t.total)));
+      var tr = el('div', { class: 'track' }), fill = el('div'); fill.style.width = (t.total / tl[0].total * 100) + '%'; tr.appendChild(fill);
+      r.appendChild(top_); r.appendChild(tr); tEl.appendChild(r);
+    });
+
+    // hours
+    var hrs = []; for (var h = 0; h < 24; h++) hrs.push(0);
+    gains.forEach(function (l) { hrs[new Date(l.ts * 1000).getUTCHours()] += l.amount; });
+    var hMax = Math.max.apply(null, hrs.concat([1])), best = hrs.indexOf(Math.max.apply(null, hrs));
+    var hEl = $('hours'); hEl.textContent = '';
+    hrs.forEach(function (v, i) { var b = el('div', { title: pad(i) + ':00 TCT: ' + money(v) }); b.style.height = Math.max(v / hMax * 100, 1) + '%'; b.style.background = i === best && v ? 'var(--gain)' : 'var(--gain-dim)'; hEl.appendChild(b); });
+    hEl.setAttribute('aria-label', 'Cash mugged by hour of day, Torn City Time');
+    $('bestHour').textContent = hrs[best] ? 'Best hour ' + pad(best) + ':00 · ' + money(hrs[best]) : '';
+
+    // recent
+    var rb = $('recent'); rb.textContent = '';
+    var rec = logs.slice().sort(function (a, b) { return b.ts - a.ts; }).slice(0, 10);
+    if (!rec.length) { var tr0 = el('tr'), td0 = el('td', { colspan: '4', class: 'empty' }, 'No mugging logs in this range.'); tr0.appendChild(td0); rb.appendChild(tr0); }
+    rec.forEach(function (l) {
+      var d = new Date(l.ts * 1000), tr = el('tr');
+      tr.appendChild(el('td', { class: 'mono muted' }, fmtDate(d) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes())));
+      var pc = el('td'); pc.appendChild(playerLink(l.other)); tr.appendChild(pc);
+      var dir = el('td', null, l.earned ? 'You mugged' : 'Mugged you'); dir.style.color = l.earned ? 'var(--gain)' : 'var(--loss)'; tr.appendChild(dir);
+      var amt = el('td', { class: 'r mono' }, (l.earned ? '+' : '−') + money(l.amount)); amt.style.fontWeight = '700'; amt.style.color = l.earned ? 'var(--gain)' : 'var(--loss)'; tr.appendChild(amt);
+      rb.appendChild(tr);
+    });
+
+    $('debug').textContent = 'Matched log types:\n' + S.typeIds.map(function (id) { return '  ' + id + ' — ' + S.typeNames[id]; }).join('\n') +
+      '\n\nLogs loaded: ' + S.logs.length + ' · skipped (no cash amount): ' + S.unparsed +
+      '\n\nFirst logs as Torn sent them:\n' + JSON.stringify(S.raw, null, 2);
+  }
+})();
+</script>
+</body>
+</html>
