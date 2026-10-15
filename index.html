@@ -116,6 +116,14 @@ td.r,th.r{text-align:right;padding-right:0}
 .empty{padding:32px 0;text-align:center;color:var(--muted)}
 .note{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
 .pill{padding:4px 8px;border-radius:4px;background:var(--loss-bg);color:var(--loss);font-weight:700;letter-spacing:.06em;font-size:12px}
+/* admin */
+#addKey{flex:1;min-width:0;height:48px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:0 14px;font-family:var(--mono);font-size:16px;letter-spacing:.08em}
+#addKey:focus{outline:none;border-color:var(--gain)}
+#addKey.bad{border-color:var(--loss)}
+.ghost.sm{height:36px;padding:0 12px;font-size:13px}
+.ghost.danger{color:var(--loss);border-color:var(--loss)}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+.view-banner{background:var(--panel);border:1px solid var(--gain-dim);border-radius:10px;padding:10px 14px;color:var(--fg)}
 @media (prefers-reduced-motion:no-preference){.bars div,.track div{transition:height .3s,width .3s}}
 </style>
 </head>
@@ -167,10 +175,38 @@ td.r,th.r{text-align:right;padding-right:0}
         </div>
         <button type="button" class="ghost" id="refresh">Refresh</button>
         <button type="button" class="ghost" id="clearHist">Clear saved history</button>
+        <button type="button" class="ghost" id="adminBtn" hidden>Admin</button>
         <button type="button" class="ghost" id="logout">Log out</button>
       </div>
     </header>
 
+    <section id="adminPanel" hidden style="display:flex;flex-direction:column;gap:24px">
+      <div class="ph">
+        <h2 style="margin:0;font-size:22px">Admin</h2>
+        <div class="controls"><button type="button" class="ghost" id="syncAll">Sync all players</button><button type="button" class="ghost" id="adminBack">Back to my mugs</button></div>
+      </div>
+      <div class="note" id="adminStatus" role="status"></div>
+      <div class="kpis" id="adminKpis"></div>
+      <section class="panel">
+        <h2>Players</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Player</th><th class="r">Mugs</th><th class="r">Mugged</th><th class="r">Mugged from them</th><th>Last sync</th><th>Actions</th></tr></thead>
+          <tbody id="adminPlayers"></tbody>
+        </table></div>
+      </section>
+      <section class="panel">
+        <h2>Add a player</h2>
+        <form id="addForm" novalidate style="padding:0;border:0;background:none">
+          <label class="cap" for="addKey">Player's API key</label>
+          <div class="key-row"><input id="addKey" type="password" placeholder="16-character key" autocomplete="off" spellcheck="false" maxlength="16"><button type="submit" class="primary" id="addBtn" style="padding:0 20px">Add player</button></div>
+          <div id="addErr" class="err" role="alert" hidden></div>
+          <div class="fine">Ask each player to create a <b>Custom</b> key in Torn under <b>Settings › API Keys</b> with only the <b>user › log</b> selection, named something like "Mug Ledger admin", and send it to you. That key can read all of their activity logs, not only mugs, so tell them what it's for; they can delete it at any time to stop sharing. Players' keys and mugs are saved only in this browser.</div>
+        </form>
+      </section>
+    </section>
+
+    <div id="dashMain" style="display:flex;flex-direction:column;gap:24px">
+    <div class="note view-banner" id="viewBanner" hidden></div>
     <div class="note" id="clearBox" role="status" hidden></div>
     <div class="note" id="syncNote"></div>
 
@@ -224,6 +260,7 @@ td.r,th.r{text-align:right;padding-right:0}
       </section>
     </div>
 
+    </div>
   </div>
 </div>
 
@@ -232,6 +269,7 @@ td.r,th.r{text-align:right;padding-right:0}
   'use strict';
   var API = 'https://api.torn.com';
   var MAX_PAGES = 500, PAGE_GAP_MS = 700, CACHE_PREFIX = 'mugledger_logs_', KEY_STORE = 'mugledger_key';
+  var ADMIN_ID = 3292901, ADMIN_STORE = 'mugledger_admin_players';
   var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], range: 30, topN: 10, openTargets: {}, fetchedAt: null, unparsed: 0 };
   try { var savedN = Number(localStorage.getItem('mugledger_topN')); if ([10, 20, 30].indexOf(savedN) !== -1) S.topN = savedN; } catch (e) {}
 
@@ -328,6 +366,7 @@ td.r,th.r{text-align:right;padding-right:0}
       $('apikey').value = '';
       $('login').hidden = true; $('dash').hidden = false;
       render();
+      if (location.hash === '#admin' && isAdmin()) showAdmin(true);
       window.scrollTo(0, 0);
     } catch (e) {
       S.key = '';
@@ -489,6 +528,8 @@ td.r,th.r{text-align:right;padding-right:0}
     render();
   });
   $('logout').addEventListener('click', function () {
+    if (S.own) { restore(S.own); S.own = null; }
+    showAdmin(false); $('viewBanner').hidden = true;
     rememberKey('');
     S.key = ''; S.me = null; S.logs = [];
     $('clearBox').hidden = true;
@@ -520,6 +561,171 @@ td.r,th.r{text-align:right;padding-right:0}
     }
   }
   $('clearHist').addEventListener('click', function () { showClear('ask'); });
+
+  // ---- admin (player 3292901 only) ----
+  // Other players share a custom key with only the user › log selection. The keys and their
+  // mugs are kept in the admin's own browser; the page pulls each player's logs from Torn itself.
+  function isAdmin() { var me = S.own ? S.own.me : S.me; return !!me && me.id === ADMIN_ID; }
+  function adminPlayers() { try { var a = JSON.parse(localStorage.getItem(ADMIN_STORE) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function saveAdminPlayers(a) { try { localStorage.setItem(ADMIN_STORE, JSON.stringify(a)); return true; } catch (e) { return false; } }
+
+  // The dashboard reads S.key / S.me / S.logs; to work on another player those are swapped in and back out.
+  var CTX = ['key', 'me', 'logs', 'fetchedAt', 'complete', 'unparsed', 'cached', 'openTargets'];
+  function snap() { var o = {}; CTX.forEach(function (k) { o[k] = S[k]; }); return o; }
+  function restore(o) { CTX.forEach(function (k) { S[k] = o[k]; }); }
+  async function asPlayer(p, fn) {
+    var saved = snap();
+    S.key = p.key; S.me = { id: p.id, name: p.name }; S.logs = []; S.openTargets = {}; S.unparsed = 0;
+    try { return await fn(); } finally { restore(saved); }
+  }
+  function summarize(p) {
+    var saved = snap();
+    S.me = { id: p.id, name: p.name }; S.unparsed = 0;
+    var c = readCache(), logs = c.entries.map(parseLog).filter(Boolean);
+    restore(saved);
+    var s = { mugs: 0, mugged: 0, lost: 0 };
+    logs.forEach(function (l) { if (l.earned) { s.mugs++; s.mugged += l.amount; } else s.lost += l.amount; });
+    return s;
+  }
+  function ago(ms) {
+    if (!ms) return 'Never';
+    var m = (Date.now() - ms) / 60000;
+    if (m < 2) return 'Just now';
+    if (m < 90) return Math.round(m) + ' min ago';
+    if (m < 2160) return Math.round(m / 60) + ' h ago';
+    return Math.round(m / 1440) + ' days ago';
+  }
+  function adminStatus(msg) { $('adminStatus').textContent = msg || ''; }
+  function setBusy(on) {
+    S.adminBusy = on;
+    ['syncAll', 'addBtn', 'adminBack', 'logout'].forEach(function (id) { $(id).disabled = on; });
+    Array.prototype.forEach.call($('adminPlayers').querySelectorAll('button'), function (b) { b.disabled = on; });
+  }
+
+  async function syncPlayer(p) {
+    adminStatus('Syncing ' + p.name + ' [' + p.id + ']…');
+    try {
+      var saved = await asPlayer(p, async function () { await loadLogs(); return S.cached; });
+      p.lastSync = Date.now();
+      p.error = saved === false ? 'Browser storage is full, so this history could not be saved.' : '';
+    } catch (e) {
+      p.error = e instanceof TornError ? e.message : 'Sync failed: ' + (e && e.message ? e.message : e);
+    }
+  }
+  function updatePlayer(p) {
+    var a = adminPlayers(), i = a.findIndex(function (x) { return x.id === p.id; });
+    if (i === -1) a.push(p); else a[i] = p;
+    saveAdminPlayers(a);
+  }
+
+  function showAdmin(on) {
+    if (on && S.own) { restore(S.own); S.own = null; render(); }
+    $('adminPanel').hidden = !on; $('dashMain').hidden = on;
+    ['ranges', 'refresh', 'clearHist', 'adminBtn'].forEach(function (id) { $(id).hidden = on || (id === 'adminBtn' && !isAdmin()); });
+    try { history.replaceState(null, '', on ? '#admin' : location.pathname + location.search); } catch (e) {}
+    if (on) renderAdmin();
+  }
+
+  function renderAdmin() {
+    var a = adminPlayers(), tot = { mugs: 0, mugged: 0, lost: 0 };
+    var tb = $('adminPlayers'); tb.textContent = '';
+    if (!a.length) {
+      var tr0 = el('tr'); tr0.appendChild(el('td', { colspan: '6', class: 'empty' }, 'No players added yet. Add one with their API key below.')); tb.appendChild(tr0);
+    }
+    a.forEach(function (p) {
+      var s = summarize(p); tot.mugs += s.mugs; tot.mugged += s.mugged; tot.lost += s.lost;
+      var tr = el('tr'), name = el('td');
+      name.appendChild(el('a', { href: 'https://www.torn.com/profiles.php?XID=' + p.id, target: '_blank', rel: 'noopener' }, p.name + ' [' + p.id + ']'));
+      tr.appendChild(name);
+      tr.appendChild(el('td', { class: 'r mono' }, s.mugs.toLocaleString('en-US')));
+      var g = el('td', { class: 'r mono' }, compact(s.mugged)); g.style.color = 'var(--gain)'; tr.appendChild(g);
+      var l = el('td', { class: 'r mono' }, compact(s.lost)); l.style.color = 'var(--loss)'; tr.appendChild(l);
+      var when = el('td'); when.appendChild(el('span', { class: 'muted' }, ago(p.lastSync)));
+      if (p.error) { when.appendChild(el('br')); when.appendChild(el('span', { class: 'err' }, p.error)); }
+      tr.appendChild(when);
+      var acts = el('td'), box = el('div', { class: 'acts' });
+      if (S.removing === p.id) {
+        var yes = el('button', { type: 'button', class: 'ghost sm danger' }, 'Remove ' + p.name);
+        var no = el('button', { type: 'button', class: 'ghost sm' }, 'Cancel');
+        yes.addEventListener('click', function () {
+          saveAdminPlayers(adminPlayers().filter(function (x) { return x.id !== p.id; }));
+          try { localStorage.removeItem(CACHE_PREFIX + p.id); } catch (e) {}
+          S.removing = null; adminStatus(p.name + ' removed, along with their key and saved mugs.'); renderAdmin();
+        });
+        no.addEventListener('click', function () { S.removing = null; renderAdmin(); });
+        box.appendChild(yes); box.appendChild(no);
+      } else {
+        var v = el('button', { type: 'button', class: 'ghost sm' }, 'View');
+        var sy = el('button', { type: 'button', class: 'ghost sm' }, 'Sync');
+        var rm = el('button', { type: 'button', class: 'ghost sm danger' }, 'Remove');
+        v.addEventListener('click', function () { viewPlayer(p); });
+        sy.addEventListener('click', async function () { setBusy(true); await syncPlayer(p); updatePlayer(p); setBusy(false); adminStatus(p.error ? '' : p.name + ' is up to date.'); renderAdmin(); });
+        rm.addEventListener('click', function () { S.removing = p.id; renderAdmin(); });
+        box.appendChild(v); box.appendChild(sy); box.appendChild(rm);
+      }
+      acts.appendChild(box); tr.appendChild(acts); tb.appendChild(tr);
+    });
+    var kp = $('adminKpis'); kp.textContent = '';
+    [['Players', String(a.length), 'sharing their mugs with you', 'var(--fg)'],
+     ['Successful mugs', tot.mugs.toLocaleString('en-US'), 'across all players, all time', 'var(--fg)'],
+     ['Total mugged', compact(tot.mugged), money(tot.mugged), 'var(--gain)'],
+     ['Mugged from them', compact(tot.lost), money(tot.lost), 'var(--loss)']
+    ].forEach(function (k) {
+      var c = el('div', { class: 'kpi' });
+      c.appendChild(el('div', { class: 'cap' }, k[0]));
+      var val = el('div', { class: 'v' }, k[1]); val.style.color = k[3]; c.appendChild(val);
+      c.appendChild(el('div', { class: 's' }, k[2]));
+      kp.appendChild(c);
+    });
+    $('syncAll').disabled = !a.length || !!S.adminBusy;
+  }
+
+  function viewPlayer(p) {
+    if (!S.own) S.own = snap();
+    S.key = p.key; S.me = { id: p.id, name: p.name }; S.openTargets = {}; S.unparsed = 0;
+    var c = readCache();
+    S.logs = c.entries.map(parseLog).filter(Boolean); S.complete = c.complete;
+    S.fetchedAt = p.lastSync ? new Date(p.lastSync) : new Date();
+    showAdmin(false); render(); window.scrollTo(0, 0);
+  }
+  function backToMine() { if (S.own) { restore(S.own); S.own = null; } render(); }
+
+  $('adminBtn').addEventListener('click', function () { showAdmin(true); });
+  $('adminBack').addEventListener('click', function () { showAdmin(false); render(); });
+  $('syncAll').addEventListener('click', async function () {
+    var a = adminPlayers(); if (!a.length) return;
+    setBusy(true);
+    for (var i = 0; i < a.length; i++) { await syncPlayer(a[i]); updatePlayer(a[i]); }
+    setBusy(false);
+    var failed = a.filter(function (p) { return p.error; }).length;
+    adminStatus(failed ? failed + ' of ' + a.length + ' players could not be synced. See the Last sync column.' : 'All ' + a.length + ' players are up to date.');
+    renderAdmin();
+  });
+  $('addKey').addEventListener('input', function () { $('addErr').hidden = true; this.classList.remove('bad'); });
+  $('addForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    var k = $('addKey').value.trim(), err = $('addErr');
+    var fail = function (m) { err.textContent = m; err.hidden = false; $('addKey').classList.add('bad'); };
+    if (!/^[A-Za-z0-9]{16}$/.test(k)) return fail('Torn API keys are exactly 16 letters and numbers. Check for missing or extra characters.');
+    var own = S.own ? S.own.key : S.key;
+    if (k === own) return fail('That is your own key. Your mugs are already on your dashboard.');
+    setBusy(true); adminStatus('Checking the key…');
+    try {
+      var basic = await asPlayer({ key: k, id: 0, name: '' }, function () { return torn('/user/', { selections: 'basic' }); });
+      var p = { id: Number(basic.player_id), name: basic.name, key: k, added: Date.now() };
+      if (p.id === ADMIN_ID) throw new TornError('self', 'That key belongs to you. Your mugs are already on your dashboard.');
+      await syncPlayer(p);
+      if (p.error && !p.lastSync) throw new TornError('sync', p.error.indexOf('Full Access') !== -1 ? 'This key can’t read logs. Ask ' + p.name + ' for a custom key that includes the user › log selection.' : p.error);
+      updatePlayer(p);
+      $('addKey').value = '';
+      adminStatus(p.name + ' [' + p.id + '] added.');
+    } catch (e) {
+      adminStatus('');
+      fail(e instanceof TornError ? e.message : 'Could not add this player: ' + (e && e.message ? e.message : e));
+    } finally {
+      setBusy(false); renderAdmin();
+    }
+  });
 
   function playerLink(id) {
     if (id == null || !isFinite(id)) return el('span', null, 'Unknown player');
@@ -576,7 +782,21 @@ td.r,th.r{text-align:right;padding-right:0}
 
   function render() {
     var me = S.me;
-    $('who').textContent = 'Signed in as ' + me.name + ' [' + me.id + '] · key ••••' + S.key.slice(-4);
+    var viewing = !!S.own;
+    $('who').textContent = viewing
+      ? 'Admin view of ' + me.name + ' [' + me.id + ']'
+      : 'Signed in as ' + me.name + ' [' + me.id + '] · key ••••' + S.key.slice(-4);
+    $('adminBtn').hidden = !isAdmin() || !$('adminPanel').hidden;
+    $('clearHist').hidden = viewing;
+    var vb = $('viewBanner'); vb.textContent = ''; vb.hidden = !viewing;
+    if (viewing) {
+      vb.appendChild(el('span', null, 'You are viewing ' + me.name + '’s mugs. Refresh pulls their latest from Torn.'));
+      var back = el('button', { type: 'button', class: 'ghost sm' }, 'Back to my mugs');
+      back.addEventListener('click', backToMine);
+      var toAdmin = el('button', { type: 'button', class: 'ghost sm' }, 'Back to admin');
+      toAdmin.addEventListener('click', function () { showAdmin(true); });
+      vb.appendChild(back); vb.appendChild(toAdmin);
+    }
 
     var now = new Date(); var today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     var DAY = 86400000, all = S.range === 'all';
