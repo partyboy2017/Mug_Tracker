@@ -19,7 +19,7 @@
 html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px}
 button,input{font:inherit}
 button{cursor:pointer}
-button:focus-visible,input:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--gain);outline-offset:2px}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--gain);outline-offset:2px}
 a{color:var(--gain)}
 [hidden]{display:none!important}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -114,9 +114,6 @@ th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;
 td{padding:12px 12px 12px 0;border-top:1px solid var(--line)}
 td.r,th.r{text-align:right;padding-right:0}
 .empty{padding:32px 0;text-align:center;color:var(--muted)}
-details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 24px}
-summary{cursor:pointer;font-weight:600}
-pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;color:var(--muted);max-height:320px;overflow:auto}
 .note{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
 .pill{padding:4px 8px;border-radius:4px;background:var(--loss-bg);color:var(--loss);font-weight:700;letter-spacing:.06em;font-size:12px}
 @media (prefers-reduced-motion:no-preference){.bars div,.track div{transition:height .3s,width .3s}}
@@ -223,11 +220,6 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
       </section>
     </div>
 
-    <details>
-      <summary>Log details for troubleshooting</summary>
-      <p class="fine">If a number looks wrong, copy this box into the chat. It shows the log types matched and the first few logs as Torn sent them. It never contains your key.</p>
-      <pre id="debug"></pre>
-    </details>
   </div>
 </div>
 
@@ -624,10 +616,6 @@ pre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size
       var amt = el('td', { class: 'r mono' }, (l.earned ? '+' : '−') + money(l.amount)); amt.style.fontWeight = '700'; amt.style.color = l.earned ? 'var(--gain)' : 'var(--loss)'; tr.appendChild(amt);
       rb.appendChild(tr);
     });
-
-    $('debug').textContent = 'Matched log types:\n' + S.typeIds.map(function (id) { return '  ' + id + ' — ' + S.typeNames[id]; }).join('\n') +
-      '\n\nLogs loaded: ' + S.logs.length + ' · skipped (no cash amount): ' + S.unparsed +
-      '\n\nFirst logs as Torn sent them:\n' + JSON.stringify(S.raw, null, 2);
   }
 })();
 </script>
