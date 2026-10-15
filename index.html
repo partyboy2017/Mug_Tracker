@@ -143,8 +143,9 @@ td.r,th.r{text-align:right;padding-right:0}
       </div>
       <div id="loginErr" class="err" role="alert" hidden></div>
       <div id="loginStatus" class="status" role="status" hidden></div>
+      <label class="fine" for="remember" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="remember" style="width:18px;height:18px;margin:0;accent-color:var(--gain)"> Keep me signed in on this device</label>
       <button type="submit" class="primary" id="loginBtn">Log in</button>
-      <div class="fine">Create one in Torn under <b>Settings › API Keys</b> and choose <b>Full Access</b>. This page runs only in your browser: the key is sent only to api.torn.com and is forgotten when you close the tab. Your mugging history is saved in this browser so it only has to be pulled from Torn once.</div>
+      <div class="fine">Create one in Torn under <b>Settings › API Keys</b> and choose <b>Full Access</b>. This page runs only in your browser: the key is sent only to api.torn.com and is forgotten when you close the tab, unless you choose to stay signed in. Your mugging history is saved in this browser so it only has to be pulled from Torn once.</div>
     </form>
   </div>
 </main>
@@ -165,10 +166,12 @@ td.r,th.r{text-align:right;padding-right:0}
           <button type="button" data-r="all" aria-pressed="false">All</button>
         </div>
         <button type="button" class="ghost" id="refresh">Refresh</button>
+        <button type="button" class="ghost" id="clearHist">Clear saved history</button>
         <button type="button" class="ghost" id="logout">Log out</button>
       </div>
     </header>
 
+    <div class="note" id="clearBox" role="status" hidden></div>
     <div class="note" id="syncNote"></div>
 
     <div class="kpis" id="kpis"></div>
@@ -228,7 +231,7 @@ td.r,th.r{text-align:right;padding-right:0}
 (function () {
   'use strict';
   var API = 'https://api.torn.com';
-  var MAX_PAGES = 500, PAGE_GAP_MS = 700, CACHE_PREFIX = 'mugledger_logs_';
+  var MAX_PAGES = 500, PAGE_GAP_MS = 700, CACHE_PREFIX = 'mugledger_logs_', KEY_STORE = 'mugledger_key';
   var S = { key: '', me: null, typeIds: [], typeNames: {}, logs: [], range: 30, topN: 10, openTargets: {}, fetchedAt: null, unparsed: 0 };
   try { var savedN = Number(localStorage.getItem('mugledger_topN')); if ([10, 20, 30].indexOf(savedN) !== -1) S.topN = savedN; } catch (e) {}
 
@@ -293,11 +296,23 @@ td.r,th.r{text-align:right;padding-right:0}
   });
   $('apikey').addEventListener('input', function () { showErr(''); });
 
+  // "Keep me signed in": the key is saved in this browser only when the player ticks the box.
+  function rememberKey(k) {
+    try { if (k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); } catch (e) {}
+  }
+  function savedKey() {
+    try { var k = localStorage.getItem(KEY_STORE); return /^[A-Za-z0-9]{16}$/.test(k || '') ? k : ''; } catch (e) { return ''; }
+  }
+
   $('loginForm').addEventListener('submit', async function (ev) {
     ev.preventDefault();
     var k = $('apikey').value.trim();
     if (!k) return showErr('Enter your API key to continue.');
     if (!/^[A-Za-z0-9]{16}$/.test(k)) return showErr('Torn API keys are exactly 16 letters and numbers. Check for missing or extra characters.');
+    await login(k, $('remember').checked);
+  });
+
+  async function login(k, remember) {
     showErr(''); S.key = k;
     var btn = $('loginBtn'); btn.disabled = true; btn.textContent = 'Checking key…';
     try {
@@ -309,17 +324,20 @@ td.r,th.r{text-align:right;padding-right:0}
       status('Finding Torn’s mugging log types…');
       await loadTypes();
       await loadLogs();
+      rememberKey(remember ? k : '');
       $('apikey').value = '';
       $('login').hidden = true; $('dash').hidden = false;
       render();
       window.scrollTo(0, 0);
     } catch (e) {
       S.key = '';
+      // A saved key Torn rejects is dropped, so the next visit doesn't keep failing.
+      if (e instanceof TornError && [2, 10, 13, 16, 18].indexOf(e.code) !== -1) rememberKey('');
       showErr(e instanceof TornError ? e.message : 'Something went wrong: ' + (e && e.message ? e.message : e));
     } finally {
       status(''); btn.disabled = false; btn.textContent = 'Log in';
     }
-  });
+  }
 
   async function checkAccess() {
     var info;
@@ -471,15 +489,37 @@ td.r,th.r{text-align:right;padding-right:0}
     render();
   });
   $('logout').addEventListener('click', function () {
+    rememberKey('');
     S.key = ''; S.me = null; S.logs = [];
+    $('clearBox').hidden = true;
     $('dash').hidden = true; $('login').hidden = false; $('apikey').value = ''; $('apikey').focus();
   });
   $('refresh').addEventListener('click', async function () {
-    var b = this; b.disabled = true; b.textContent = 'Refreshing…';
+    var b = this; b.disabled = true; b.textContent = 'Refreshing…'; showClear(null);
     try { await loadLogs(); render(); }
     catch (e) { $('syncNote').textContent = e.message || String(e); }
     finally { b.disabled = false; b.textContent = 'Refresh'; status(''); }
   });
+
+  // Clear saved history: confirmed inline, then the next Refresh pulls everything from Torn again.
+  function showClear(state) {
+    var box = $('clearBox'); box.textContent = ''; box.hidden = !state;
+    if (state === 'ask') {
+      box.appendChild(el('span', null, 'Delete the mugging history saved in this browser? Your Torn logs are not affected.'));
+      var yes = el('button', { type: 'button', class: 'ghost', style: 'color:var(--loss);border-color:var(--loss)' }, 'Delete it');
+      var no = el('button', { type: 'button', class: 'ghost' }, 'Keep it');
+      yes.addEventListener('click', function () {
+        try { localStorage.removeItem(CACHE_PREFIX + S.me.id); } catch (e) {}
+        S.logs = []; S.complete = false; S.unparsed = 0; S.openTargets = {};
+        render(); showClear('done');
+      });
+      no.addEventListener('click', function () { showClear(null); });
+      box.appendChild(yes); box.appendChild(no);
+    } else if (state === 'done') {
+      box.appendChild(el('span', null, 'Saved history cleared. Press Refresh to pull it again from Torn.'));
+    }
+  }
+  $('clearHist').addEventListener('click', function () { showClear('ask'); });
 
   function playerLink(id) {
     if (id == null || !isFinite(id)) return el('span', null, 'Unknown player');
@@ -679,6 +719,10 @@ td.r,th.r{text-align:right;padding-right:0}
       rb.appendChild(tr);
     });
   }
+
+  // Signed in on this device before: log straight in and pull any new mugs.
+  var keep = savedKey();
+  if (keep) { $('remember').checked = true; login(keep, true); }
 })();
 </script>
 </body>
