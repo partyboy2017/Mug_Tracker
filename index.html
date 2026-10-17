@@ -727,9 +727,53 @@ td.r,th.r{text-align:right;padding-right:0}
     }
   });
 
+  // ---- player names ----
+  // Mugging logs only carry player IDs, so names are looked up from Torn (a public selection,
+  // so any key works) the first time a player is shown, and remembered in this browser for a week.
+  var NAME_STORE = 'mugledger_names', NAME_TTL = 7 * 86400000, NAME_GAP_MS = 800;
+  var names = {}, nameQueue = [], nameBusy = false, nameFailed = {}, namePending = {};
+  try { names = JSON.parse(localStorage.getItem(NAME_STORE) || '{}') || {}; } catch (e) { names = {}; }
+  function saveNames() { try { localStorage.setItem(NAME_STORE, JSON.stringify(names)); } catch (e) {} }
+  function playerLabel(id) { var e = names[id]; return (e && e.n ? e.n : 'Player') + ' [' + id + ']'; }
+  function wantName(id) {
+    if (id == null || !isFinite(id)) return;
+    var e = names[id];
+    if ((e && Date.now() - e.at < NAME_TTL) || nameFailed[id] || namePending[id]) return;
+    namePending[id] = 1;
+    nameQueue.push(id);
+    pumpNames();
+  }
+  async function pumpNames() {
+    if (nameBusy) return;
+    nameBusy = true;
+    var got = 0;
+    try {
+      while (nameQueue.length && S.key) {
+        var id = nameQueue.shift();
+        try {
+          var r = await torn('/user/' + id, { selections: 'basic' });
+          if (r && r.name) { names[id] = { n: String(r.name), at: Date.now() }; got++; }
+          else nameFailed[id] = 1;
+          delete namePending[id];
+        } catch (e) {
+          // Rate limits, network trouble or a key problem: try again on a later render.
+          if (e && [2, 5, 8, 9, 10, 13, 18, 'network', 'http'].indexOf(e.code) !== -1) { nameQueue.unshift(id); break; }
+          nameFailed[id] = 1;
+          delete namePending[id];
+        }
+        if (got && got % 5 === 0) { saveNames(); if (S.me) render(); }
+        await sleep(NAME_GAP_MS);
+      }
+    } finally {
+      nameBusy = false;
+      if (got) { saveNames(); if (S.me) render(); }
+    }
+  }
+
   function playerLink(id) {
     if (id == null || !isFinite(id)) return el('span', null, 'Unknown player');
-    var a = el('a', { href: 'https://www.torn.com/profiles.php?XID=' + id, target: '_blank', rel: 'noopener' }, 'Player [' + id + ']');
+    wantName(id);
+    var a = el('a', { href: 'https://www.torn.com/profiles.php?XID=' + id, target: '_blank', rel: 'noopener' }, playerLabel(id));
     return a;
   }
 
@@ -828,7 +872,7 @@ td.r,th.r{text-align:right;padding-right:0}
       ['Total mugged', compact(total), money(total) + (all ? ' all time' : ' over ' + range + ' days'), 'var(--gain)'],
       ['Successful mugs', gains.length.toLocaleString('en-US'), (gains.length / range).toFixed(1) + ' per day', 'var(--fg)'],
       ['Average per mug', compact(gains.length ? total / gains.length : 0), money(gains.length ? total / gains.length : 0), 'var(--fg)'],
-      ['Biggest mug', compact(big.amount), big.ts ? 'Player [' + big.other + '] · ' + fmtDate(new Date(big.ts * 1000)) + (all ? ' ' + new Date(big.ts * 1000).getUTCFullYear() : '') : 'None yet', 'var(--fg)'],
+      ['Biggest mug', compact(big.amount), big.ts ? (wantName(big.other), playerLabel(big.other)) + ' · ' + fmtDate(new Date(big.ts * 1000)) + (all ? ' ' + new Date(big.ts * 1000).getUTCFullYear() : '') : 'None yet', 'var(--fg)'],
       ['Mugged from you', compact(lost), losses.length + ' times · net ' + compact(total - lost), 'var(--loss)']
     ].forEach(function (k) {
       var c = el('div', { class: 'kpi' });
@@ -905,7 +949,7 @@ td.r,th.r{text-align:right;padding-right:0}
     tl.forEach(function (t, idx) {
       var open = !!S.openTargets[t.id], detailId = 'tdetail-' + t.id;
       var r = el('div', { class: 'trow' }), top_ = el('div', { class: 'top' }), left = el('span', { class: 'tleft' });
-      var xb = el('button', { type: 'button', class: 'xbtn', 'aria-expanded': String(open), 'aria-controls': detailId, 'aria-label': (open ? 'Hide' : 'Show') + ' mugs of player ' + t.id });
+      var xb = el('button', { type: 'button', class: 'xbtn', 'aria-expanded': String(open), 'aria-controls': detailId, 'aria-label': (open ? 'Hide' : 'Show') + ' mugs of ' + playerLabel(t.id) });
       xb.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
       xb.addEventListener('click', function () { S.openTargets[t.id] = !S.openTargets[t.id]; render(); });
       left.appendChild(xb);
