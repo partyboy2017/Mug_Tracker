@@ -66,9 +66,23 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;min-width:0}
 .panel h2{margin:0;font-size:18px}
 .ph{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}
-.row{display:flex;flex-wrap:wrap;gap:24px}
-.row > .panel.big{flex:3 1 520px}
-.row > .panel.small{flex:2 1 340px}
+/* movable frames: one wrapping row, so any order reflows (wide + narrow pair up, full-width frames take a line) */
+.frames{display:flex;flex-wrap:wrap;gap:24px}
+.frames > .panel{flex:1 1 100%;transition:opacity .15s,box-shadow .15s}
+.frames > .panel.big{flex:3 1 520px}
+.frames > .panel.small{flex:2 1 340px}
+.frames > .panel.dragging{opacity:.4}
+.frames > .panel.drop-target{box-shadow:0 0 0 2px var(--gain)}
+.frames .ph{align-items:center}
+.ph-l{display:flex;align-items:center;gap:6px;min-width:0}
+.ph-r{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-left:auto}
+.grip{width:24px;height:36px;margin-left:-6px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:grab;border-radius:6px}
+.grip:hover{color:var(--fg)}
+.grip:active{cursor:grabbing}
+.fmove{display:flex;gap:4px}
+.xbtn:disabled{opacity:.35;cursor:default}
+.xbtn:disabled:hover{color:var(--muted);border-color:var(--line)}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .bars{display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid var(--line)}
 .bars div{flex:1;min-width:2px;background:var(--gain);border-radius:3px 3px 0 0}
 .chart{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px}
@@ -175,6 +189,7 @@ td.r,th.r{text-align:right;padding-right:0}
         </div>
         <button type="button" class="ghost" id="refresh">Refresh</button>
         <button type="button" class="ghost" id="clearHist">Clear saved history</button>
+        <button type="button" class="ghost" id="resetLayout" hidden>Reset layout</button>
         <button type="button" class="ghost" id="adminBtn" hidden>Admin</button>
         <button type="button" class="ghost" id="logout">Log out</button>
       </div>
@@ -212,8 +227,9 @@ td.r,th.r{text-align:right;padding-right:0}
 
     <div class="kpis" id="kpis"></div>
 
-    <section class="panel">
-      <div class="ph"><h2 id="dailyTitle">Cash mugged per day</h2><div class="muted" style="font-size:13px" id="peakDay"></div></div>
+    <div class="frames" id="frames">
+    <section class="panel" data-frame="daily" data-label="Cash mugged per day">
+      <div class="ph"><div class="ph-l"><h2 id="dailyTitle">Cash mugged per day</h2></div><div class="ph-r"><div class="muted" style="font-size:13px" id="peakDay"></div></div></div>
       <div class="chart" style="height:240px">
         <div class="yaxis" id="dailyY" aria-hidden="true"></div>
         <div class="plot">
@@ -224,41 +240,38 @@ td.r,th.r{text-align:right;padding-right:0}
       <div class="xaxis" id="dailyAxis" aria-hidden="true"></div>
     </section>
 
-    <div class="row">
-      <section class="panel big">
-        <div class="ph"><h2>Running total</h2>
-          <div class="legend"><span><i class="sw" style="background:var(--gain)"></i>You mugged</span><span><i class="sw" style="background:var(--loss)"></i>Mugged from you</span></div>
+      <section class="panel big" data-frame="cum" data-label="Running total">
+        <div class="ph"><div class="ph-l"><h2>Running total</h2></div>
+          <div class="ph-r"><div class="legend"><span><i class="sw" style="background:var(--gain)"></i>You mugged</span><span><i class="sw" style="background:var(--loss)"></i>Mugged from you</span></div></div>
         </div>
         <svg id="cum" role="img" viewBox="0 0 600 200" preserveAspectRatio="none" style="width:100%;height:220px;display:block"></svg>
         <div class="axis" id="cumAxis"></div>
       </section>
-      <section class="panel small">
-        <div class="ph"><h2>Most profitable targets</h2>
-          <div class="seg sm" role="group" aria-label="Number of targets to show" id="topN">
+      <section class="panel small" data-frame="targets" data-label="Most profitable targets">
+        <div class="ph"><div class="ph-l"><h2>Most profitable targets</h2></div>
+          <div class="ph-r"><div class="seg sm" role="group" aria-label="Number of targets to show" id="topN">
             <button type="button" data-n="10" aria-pressed="true">Top 10</button>
             <button type="button" data-n="20" aria-pressed="false">Top 20</button>
             <button type="button" data-n="30" aria-pressed="false">Top 30</button>
-          </div>
+          </div></div>
         </div>
         <div class="muted" style="font-size:13px" id="targetsNote"></div>
         <div class="tlist" id="targets"></div>
       </section>
-    </div>
-
-    <div class="row">
-      <section class="panel small">
-        <div class="ph"><h2>Cash by hour (TCT)</h2><div class="muted" style="font-size:13px" id="bestHour"></div></div>
+      <section class="panel small" data-frame="hours" data-label="Cash by hour">
+        <div class="ph"><div class="ph-l"><h2>Cash by hour (TCT)</h2></div><div class="ph-r"><div class="muted" style="font-size:13px" id="bestHour"></div></div></div>
         <div class="bars" id="hours" role="img" style="height:160px"></div>
         <div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
       </section>
-      <section class="panel big">
-        <h2>Recent mugs</h2>
+      <section class="panel big" data-frame="recent" data-label="Recent mugs">
+        <div class="ph"><div class="ph-l"><h2>Recent mugs</h2></div><div class="ph-r"></div></div>
         <div class="tbl"><table>
           <thead><tr><th>When (TCT)</th><th>Player</th><th>Direction</th><th class="r">Amount</th></tr></thead>
           <tbody id="recent"></tbody>
         </table></div>
       </section>
     </div>
+    <div class="sr" id="frameLive" aria-live="polite"></div>
 
     </div>
   </div>
@@ -983,6 +996,100 @@ td.r,th.r{text-align:right;padding-right:0}
       rb.appendChild(tr);
     });
   }
+
+  // Movable frames: drag a panel by its grip, or use its up/down buttons.
+  // The order is saved in this browser only.
+  (function () {
+    var STORE = 'mugledger_frame_order';
+    var box = $('frames'), live = $('frameLive'), dragged = null;
+    var list = function () { return Array.prototype.slice.call(box.querySelectorAll(':scope > [data-frame]')); };
+    var order = function () { return list().map(function (f) { return f.dataset.frame; }); };
+    var defaults = order();
+    var svg = function (d) { return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>'; };
+    var GRIP = '<svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="3" r="1.6"/><circle cx="10" cy="3" r="1.6"/><circle cx="4" cy="9" r="1.6"/><circle cx="10" cy="9" r="1.6"/><circle cx="4" cy="15" r="1.6"/><circle cx="10" cy="15" r="1.6"/></svg>';
+
+    function sync() {
+      var fs = list();
+      fs.forEach(function (f, i) {
+        var b = f.querySelectorAll('.fmove button');
+        b[0].disabled = i === 0; b[1].disabled = i === fs.length - 1;
+      });
+      $('resetLayout').hidden = order().join() === defaults.join();
+    }
+    function save() {
+      try {
+        if (order().join() === defaults.join()) localStorage.removeItem(STORE);
+        else localStorage.setItem(STORE, JSON.stringify(order()));
+      } catch (e) {}
+      sync();
+    }
+    function arrange(ids) {
+      var rank = function (id) { var i = ids.indexOf(id); return i === -1 ? 100 + defaults.indexOf(id) : i; };
+      list().sort(function (a, b) { return rank(a.dataset.frame) - rank(b.dataset.frame); })
+        .forEach(function (f) { box.appendChild(f); });
+    }
+    function announce(f) {
+      var fs = list();
+      live.textContent = f.dataset.label + ' moved to position ' + (fs.indexOf(f) + 1) + ' of ' + fs.length;
+    }
+    function move(f, delta, btn) {
+      var fs = list(), i = fs.indexOf(f), j = i + delta;
+      if (j < 0 || j >= fs.length) return;
+      if (delta < 0) box.insertBefore(f, fs[j]); else box.insertBefore(f, fs[j].nextSibling);
+      save(); announce(f);
+      var other = btn.parentNode.querySelectorAll('button')[delta < 0 ? 1 : 0];
+      (btn.disabled ? other : btn).focus();
+      f.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    function clearMarks() { list().forEach(function (f) { f.classList.remove('drop-target', 'dragging'); }); }
+
+    list().forEach(function (f) {
+      var name = f.dataset.label;
+      var grip = el('span', { class: 'grip', title: 'Drag to move', 'aria-hidden': 'true' });
+      grip.innerHTML = GRIP;
+      f.querySelector('.ph-l').insertBefore(grip, f.querySelector('.ph-l').firstChild);
+      var tools = el('div', { class: 'fmove', role: 'group', 'aria-label': 'Move ' + name });
+      var up = el('button', { type: 'button', class: 'xbtn', 'aria-label': 'Move ' + name + ' up', title: 'Move up' });
+      var down = el('button', { type: 'button', class: 'xbtn', 'aria-label': 'Move ' + name + ' down', title: 'Move down' });
+      up.innerHTML = svg('<path d="m6 15 6-6 6 6"/>'); down.innerHTML = svg('<path d="m6 9 6 6 6-6"/>');
+      up.addEventListener('click', function () { move(f, -1, up); });
+      down.addEventListener('click', function () { move(f, 1, down); });
+      tools.appendChild(up); tools.appendChild(down);
+      f.querySelector('.ph-r').appendChild(tools);
+
+      // Only the grip starts a drag, so selecting text or clicking inside a panel works as before.
+      grip.addEventListener('mousedown', function () { f.draggable = true; });
+      grip.addEventListener('mouseup', function () { f.draggable = false; });
+      f.addEventListener('dragstart', function (e) {
+        if (!f.draggable) return;
+        dragged = f; f.classList.add('dragging');
+        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f.dataset.frame); } catch (err) {}
+      });
+      f.addEventListener('dragover', function (e) {
+        if (!dragged || dragged === f) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+        list().forEach(function (o) { o.classList.toggle('drop-target', o === f); });
+      });
+      f.addEventListener('dragleave', function (e) { if (!f.contains(e.relatedTarget)) f.classList.remove('drop-target'); });
+      f.addEventListener('drop', function (e) {
+        if (!dragged || dragged === f) return;
+        e.preventDefault();
+        var fs = list();
+        if (fs.indexOf(dragged) < fs.indexOf(f)) box.insertBefore(dragged, f.nextSibling); else box.insertBefore(dragged, f);
+        save(); announce(dragged);
+      });
+      f.addEventListener('dragend', function () { f.draggable = false; dragged = null; clearMarks(); });
+    });
+
+    $('resetLayout').addEventListener('click', function () {
+      arrange(defaults); save();
+      live.textContent = 'Layout reset';
+    });
+
+    try { var saved = JSON.parse(localStorage.getItem(STORE) || 'null'); if (Array.isArray(saved)) arrange(saved); } catch (e) {}
+    sync();
+  })();
 
   // Signed in on this device before: log straight in and pull any new mugs.
   var keep = savedKey();
